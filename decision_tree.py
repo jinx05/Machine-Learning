@@ -9,7 +9,7 @@
 # Gautam Kunapuli (gautam.kunapuli@utdallas.edu)
 # Sriraam Natarajan (sriraam.natarajan@utdallas.edu),
 #
-#I worked with Mayank from Dr. Natarajan's class on using the various numpy functions.
+# I worked on this assignment with Divya Sharma from our section.
 #
 # INSTRUCTIONS:
 # ------------
@@ -32,6 +32,8 @@ import graphviz
 import math
 import matplotlib.pyplot as plt
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 from sklearn import metrics
 from sklearn.tree import export_graphviz
@@ -39,8 +41,8 @@ from sklearn.externals.six import StringIO
 from IPython.display import Image
 from sklearn.metrics import confusion_matrix
 import pydotplus
-
-#import pdb
+import random
+import pdb
 
 
     
@@ -67,7 +69,7 @@ def partition(x):
     raise Exception('Function not yet implemented!')
 
 
-def entropy(y):
+def entropy(y, weights = None):
     """
     Compute the entropy of a vector y by considering the counts of the unique values (v1, ... vk), in z
 
@@ -75,18 +77,29 @@ def entropy(y):
     """
 
     # INSERT YOUR CODE HERE
-    
+    #pdb.set_trace()
     l = len(y)
     dt  = partition(y)
-   
     sum =0
-    for key in list(dt.keys()):
-        p = dt[key].size/l          #entropy calculation 
+    if weights is None:
+        for key in list(dt.keys()):
+            p = dt[key].size/l          #entropy calculation 
         sum -= p*math.log2(p)
-    return sum
+        return sum
+    
+    if weights is not None:
+        ws = np.sum(weights)
+        for key in list(dt.keys()):
+            sump = 0
+            for index in list(dt[key]):
+                sump += weights[index]/ws 
+            #pdb.set_trace()
+            p = sump         #entropy calculation 
+        sum -= p*math.log2(p)
+        return sum
+    
 
-
-def mutual_information(x, y):
+def mutual_information(x, y,weights = None):
     """
     Compute the mutual information between a data column (x) and the labels (y). The data column is a single attribute
     over all the examples (n x 1). Mutual information is the difference between the entropy BEFORE the split set, and
@@ -94,23 +107,51 @@ def mutual_information(x, y):
 
     Returns the mutual information: I(x, y) = H(y) - H(y | x)
     """
-
-    # INSERT YOUR CODE HERE  
-    hy  = entropy(y)
-    valuex, countx = np.unique(x,return_counts = True)
+    
+    
+    # INSERT YOUR CODE HERE 
+    if weights is None:
+        hy  = entropy(y)
+        valuex, countx = np.unique(x,return_counts = True)
    
-    hyx = 0.0
-    for i in range(len(valuex)):
-        p = countx[i].astype('float')/len(x)
-        hyx += p*entropy(y[x==valuex[i]])
-    return hy - hyx
-   
+        hyx = 0.0
+        for i in range(len(valuex)):
+            p = countx[i].astype('float')/len(x)
+            hyx += p*entropy(y[x==valuex[i]])
+        return hy - hyx
+    
+    if weights is not None:
+        w = weights
+        #print(w[:10])
+        hy = entropy(y,w)
+        #print(hy)
+        ws = np.sum(weights)
+        p = partition(x)
+        hyx = 0.0
+        for val in p.keys():
+            sump = 0.0
+            for index in p[val]:
+                sump += weights[index]/ws
+            #pdb.set_trace()
+            p1 = sump
+            hyx += p1*entropy(y[x==val],w)
+        return hy - hyx
+    
+#    if weights is not None:
+#        hy = entropy(y)
+#        valuex, countx = np.unique(x,return_counts = True)
+#        hyx = 0.0
+#        for i in range(len(valuex)):
+#            p = countx[i].astype('float')/len(x)
+#            hyx += p*entropy(y[x==valuex[i]],weights)
+#        return hy - hyx
+        
     
     raise Exception('Function not yet implemented!')
 
 
     
-def id3(x, y, attribute_value_pairs=None, depth=0, max_depth=5):
+def id3(x, y, attribute_value_pairs=None, depth=0, max_depth=5,weights=None):
     """
     Implements the classical ID3 algorithm given training data (x), training labels (y) and an array of
     attribute-value pairs to consider. This is a recursive algorithm that depends on three termination conditions
@@ -153,6 +194,8 @@ def id3(x, y, attribute_value_pairs=None, depth=0, max_depth=5):
 
     # INSERT YOUR CODE HERE. NOTE: THIS IS A RECURSIVE FUNCTION.
     tree = {}
+    w = weights
+    #pdb.set_trace()
     if attribute_value_pairs is None:
         attribute_value_pairs = np.vstack([[(i, v) for v in np.unique(x[:, i])] for i in range(x.shape[1])])
         #numpy.vstack takes the tuples and stacks them vertically in a vector.
@@ -165,7 +208,7 @@ def id3(x, y, attribute_value_pairs=None, depth=0, max_depth=5):
         return y_values[np.argmax(y_counts)]
     
     #mutual information array corresponding to attribute_value_pairs array.
-    mi = np.array([mutual_information(np.array(x[:, i] == v).astype(int), y)
+    mi = np.array([mutual_information(np.array(x[:, i] == v).astype(int), y,w)
                                  for (i, v) in attribute_value_pairs])
     #print(mi)
     
@@ -181,10 +224,19 @@ def id3(x, y, attribute_value_pairs=None, depth=0, max_depth=5):
     for val, indices in p.items():
         x_subset = x.take(indices, axis=0)  #axis=0 refers to column wise operation, hence both data and labels are selected for the cases when the above 
         y_subset = y.take(indices, axis=0)  #attribute value pair is selcted(True) and when not(False).
+        
         decision = bool(val)
-
-        tree[(attr_sel, value_sel, decision)] = id3(x_subset, y_subset, attribute_value_pairs=attribute_value_pairs,
+        
+        if weights is None:
+            tree[(attr_sel, value_sel, decision)] = id3(x_subset, y_subset, attribute_value_pairs=attribute_value_pairs,
                                             max_depth=max_depth, depth=depth + 1)
+        
+        if weights is not None:
+            w_subset = weights.take(indices, axis=0)
+            tree[(attr_sel, value_sel, decision)] = id3(x_subset, y_subset, attribute_value_pairs=attribute_value_pairs,
+                                            max_depth=max_depth, depth=depth + 1,weights = w_subset)
+
+        
 
     return tree
   
@@ -217,7 +269,7 @@ def predict_example(x, tree):
     raise Exception('Function not yet implemented!')
 
 
-def compute_error(y_true, y_pred):
+def compute_error(y_true, y_pred, weights = None):
     """
     Computes the average error between the true labels (y_true) and the predicted labels (y_pred)
 
@@ -225,12 +277,116 @@ def compute_error(y_true, y_pred):
     """
 
     # INSERT YOUR CODE HERE
-    n = len(y_true)
-    err = [y_true[i] != y_pred[i] for i in range(n)]
-    #print(type(err))
-    return sum(err) / n
+    if weights is None:
+        n = len(y_true)
+        err = [y_true[i] != y_pred[i] for i in range(n)]
+        return sum(err)/n
+    
+    if weights is not None:
+        ws = np.sum(weights)
+        n = len(y_true)
+        err = [int(y_true[i] != y_pred[i]) for i in range(n)]
+        sumerr = 0
+        for i in range(n):
+            sumerr += err[i]*weights[i]
+        return sumerr/ws
+
 
     raise Exception('Function not yet implemented!')
+    
+def boosting(x,y,max_depth,num_stumps):
+    
+    trees=[]
+    
+    l = y.size
+    w = np.array([])
+   
+    #initialize weight vector
+    for i in range(l):
+        w = np.append(w,1/l)
+    
+    for t in range(num_stumps):
+        #print(w[:10])
+        t1 = id3(x, y, depth=0, max_depth=max_depth,weights = w)
+        #print(t1)#weak learner
+        y_pred = [predict_example(xin, t1) for xin in x]
+
+        
+        tr = [int(y[i] != y_pred[i]) for i in range(len(y))]    #terror for the weak learner
+        #print(tr)
+        for t in range(len(tr)):
+            if(tr[t] == 0):
+                tr[t] = -1
+        #print(tr)
+        #pdb.set_trace()
+        er = compute_error(y,y_pred,w)                          
+        stage = math.log((1 - er)/er)                           #alpha calculation
+        trees.append((stage,t1))                                  #append model and its weight
+        
+        w = np.array([w[i]*math.exp(stage*tr[i]) for i in range(len(w))]) # weights updated
+    
+    return trees
+
+
+
+def bagging(x, y, max_depth, num_trees):
+    
+    bagOfTrees = []
+    
+    for i in range(num_trees):
+        xrand = []
+        yrand = []
+        for item in range(y.size):
+            r_index = random.randrange(y.size)
+            xrand.append(x[r_index,:])
+            yrand.append(y[r_index])
+        #print(np.array(x_rand).shape)
+        t1 = id3(np.array(xrand),np.array(yrand),depth = 0, max_depth = max_depth)
+        bagOfTrees.append(t1)
+        
+    return bagOfTrees
+
+def predict_bagging(x,bag):
+    output = 0
+    r = []
+    for i in range(len(bag)):
+        r.append(predict_example(x,bag[i]))
+    output = max(r, key=r.count)
+    return output
+        
+         
+            
+
+def predict_ensemble(x, h_ens):
+    
+    output = 0
+    for i in range(len(h_ens)):
+         for splitval, sub_tree in h_ens[i][1].items():
+             attr_num = splitval[0]
+             attr_value = splitval[1]
+             decision = splitval[2]
+
+         if decision == (x[attr_num] == attr_value):
+            if type(sub_tree) is dict:
+                label = predict_example(x, sub_tree)
+            else:
+                label = sub_tree
+            
+            output += int(label)*h_ens[i][0]
+    
+    
+    if(output > 0.5):
+        return 1
+    else:
+        return 0
+    
+        
+    
+    raise Exception('Function not yet implemented!')
+    
+    
+    #call id3 for given weights 
+    
     
 
 def confusionMatrixCalculation(p_labels,t_labels):
@@ -329,179 +485,80 @@ def to_graphviz(tree, dot_string='', uid=-1, depth=0):
 
 if __name__ == '__main__':
     
-    M = np.genfromtxt('./monks-1.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
+    M = np.genfromtxt('./mushroom.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
     ytrn = M[:, 0]
     Xtrn = M[:, 1:]
 
-
-
-
     # Load the test data
-    M = np.genfromtxt('./monks-1.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
+    M = np.genfromtxt('./mushroom.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
     ytst = M[:, 0]
     Xtst = M[:, 1:]
-    tst_err={}
-    trn_err={}
-    for d in range(1,10):
-
-        decision_tree = id3(Xtrn, ytrn, max_depth=d)
-        print(decision_tree)
-        # Pretty print it to console
-        pretty_print(decision_tree)
-
-        # Visualize the tree and save it as a PNG image
-        dot_str = to_graphviz(decision_tree)
-        render_dot_file(dot_str, './my_learned_tree')
-
-        # Compute the test error
-        y_pred = [predict_example(x, decision_tree) for x in Xtst]
-        tst_err[d] = compute_error(ytst, y_pred)
-        trn_err[d] = compute_error(ytrn, y_pred)
-
-
-
-        print('Test Error = {0:4.2f}%.'.format(tst_err[d] * 100))
-        print('Training Error = {0:4.2f}%.'.format(trn_err[d] * 100))
-
-
-
-
-
-    plt.figure()
-    plt.plot(tst_err.keys(), tst_err.values(), marker='v', linewidth=3, markersize=12)
-    plt.plot(trn_err.keys(), trn_err.values(), marker='o', linewidth=3, markersize=12)
-    plt.xlabel('values of depth',fontsize=16)
-    plt.ylabel('training error/test error',fontsize=16)
-    plt.xticks(list(trn_err.keys()), fontsize=12)
-    plt.legend(['Test Error','Training Error'],fontsize=16)
     
-#    M = np.genfromtxt('mushroom.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#    ytrn = M[:, 0]
-#    Xtrn = M[:, 1:]
-#    tst_Err = {}
-#    con = {}
-#    trn_Err={}
-#    M = np.genfromtxt('mushroom.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#    ytst = M[:, 0]
-#    Xtst = M[:, 1:]
-#    
-#    for d in range(1,6,2):
-#        decision_tree = id3(Xtrn,ytrn,max_depth = d)
-#        pretty_print(decision_tree)
+    #print(Xtrn.shape)
+    #boosting 
+#    for d in range(1,3):
+#        for stump in range(5,11,5):
+#            print("depth = ",d)
+#            print("ensemble size = ",stump)
+#            #pdb.set_trace()
+#            boost = boosting(Xtrn,ytrn,d,stump)
+#            y_pred = [predict_ensemble(tst,boost) for tst in Xtst]
+#            #tst_err = compute_error(ytst, y_pred)
+#            tst_err = compute_error(ytst, y_pred)
 #
-#        t = to_graphviz(decision_tree)
-#        
-#        render_dot_file(t, './mush_datset_trained_tree_depth_{}'.format(d))
-#        # Compute the test error
-#        y_pred = [predict_example(x, decision_tree) for x in Xtst]
-#        tst_err = compute_error(ytst, y_pred)
-#        matrix = confusion_matrix(ytst, y_pred)
-#        print("Confusion Matrix for depth_{}".format(d))
-#        print(matrix)
-#        print('Accuracy of Mushroom dataset = {0:4.2f}%.'.format((1-tst_err) * 100))
-    
-#    for d in range(1,6,2):
-#            clf = DecisionTreeClassifier(max_depth=d,criterion='entropy')
-#            clf = clf.fit(Xtrn, ytrn)
-#            y_pred = clf.predict(Xtst)
-#            print("Accuracy for depth>>{}:".format(d), metrics.accuracy_score(ytst, y_pred)*100)
 #            matrix = confusion_matrix(ytst, y_pred)
-#            print("Confusion Matrix of scikit-learn's for depth>>{}".format(d))
+#            #print("Confusion Matrix for depth_{}".format(d))
 #            print(matrix)
-#            dot_data = StringIO()
-#            export_graphviz(clf, out_file=dot_data,
-#                        filled=True, rounded=True,
-#                        special_characters=True)
-#            graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
-#            graph.write_png('mushroon_scikit_entropy{}.png'.format(d))
-#
-#            Image(graph.create_png())
+#            print('Accuracy of Mushroom dataset = {0:4.2f}%.'.format((1-tst_err) * 100))
+            
     
-#        for file in range(1,2):
-#            M = np.genfromtxt('monks-'+str(file)+'.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#            ytrn = M[:, 0]
-#            Xtrn = M[:, 1:]
-#            #tst_Err = {}
-#            #con = {}
-#            #trn_Err={}
-#            M = np.genfromtxt('monks-'+str(file)+'.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#            ytst = M[:, 0]
-#            Xtst = M[:, 1:]
+    for d in range(3,6,2):
+        for bag in range(5,11,5):
+            print("depth = ",d)
+            print("bag size = ",bag)
+            bag1 = bagging(Xtrn,ytrn,d,bag)
+            y_pred = [predict_bagging(test,bag1) for test in Xtst]
+            tst_err = compute_error(ytst,y_pred)
+            matrix = confusion_matrix(ytst,y_pred)
+            print(matrix)
+            print('Accuracy of Mushroom dataset = {0:4.2f}%.'.format((1-tst_err) * 100))
+    
+#    for num in range(5,11,5):
 #        
-#        for d in range(1,6,2):
-#            clf = DecisionTreeClassifier(max_depth=d,criterion='entropy')
-#            clf = clf.fit(Xtrn, ytrn)
+#        for depth in range(1,3):
+#            print("depth =",depth)
+#            print("number of weak learners =",num)
+#            clf = AdaBoostClassifier(base_estimator = DecisionTreeClassifier(max_depth = depth),n_estimators = num)
+#            clf = clf.fit(Xtrn,ytrn)
 #            y_pred = clf.predict(Xtst)
-#            print("Accuracy for depth>>{}:".format(d), metrics.accuracy_score(ytst, y_pred)*100)
+#            print("Accuracy for depth and number of trees>>{}:".format(depth), metrics.accuracy_score(ytst, y_pred)*100)
 #            matrix = confusion_matrix(ytst, y_pred)
-#            print("Confusion Matrix of scikit-learn's for depth>>{}".format(d))
+#            print("Confusion Matrix of scikit-learn's for depth>>{}".format(depth))
 #            print(matrix)
-#            dot_data = StringIO()
-#            export_graphviz(clf, out_file=dot_data,
-#                        filled=True, rounded=True,
-#                        special_characters=True)
-#            graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
-#            graph.write_png('mydecision_scikit_entropy{}.png'.format(d))
-#
-#            Image(graph.create_png())
-        
-
-#    for file in range(1,2):
-#        M = np.genfromtxt('monks-'+str(file)+'.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#        ytrn = M[:, 0]
-#        Xtrn = M[:, 1:]
-#        tst_Err = {}
-#        con = {}
-#        trn_Err={}
-#        M = np.genfromtxt('monks-'+str(file)+'.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#        ytst = M[:, 0]
-#        Xtst = M[:, 1:]
-#    for d in range(1,6,2):
-#        decision_tree = id3(Xtrn,ytrn,max_depth = d)
-#        pretty_print(decision_tree)
-#
-#        t = to_graphviz(decision_tree)
+            
+#    for noftrees in range(5,11,5):
 #        
-#        render_dot_file(t, './trained_tree_depth_{}'.format(d))
-#        # Compute the test error
-#        y_pred = [predict_example(x, decision_tree) for x in Xtst]
-#        tst_err = compute_error(ytst, y_pred)
-#        matrix = confusion_matrix(ytst, y_pred)
-#        print("Confusion Matrix for depth_{}".format(d))
-#        print(matrix)
-#        print('Accuracy of Monk-1 problem = {0:4.2f}%.'.format((1-tst_err) * 100))
-        
-
-        
-#        for file in range(1,4):
-#            M = np.genfromtxt('monks-'+str(file)+'.train', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#            ytrn = M[:, 0]
-#            Xtrn = M[:, 1:]
-#            tst_Err = {}
-#            con = {}
-#            trn_Err={}
-#            M = np.genfromtxt('monks-'+str(file)+'.test', missing_values=0, skip_header=0, delimiter=',', dtype=int)
-#            ytst = M[:, 0]
-#            Xtst = M[:, 1:]
-#        
-#            for depth in range(1,10):
-#                decision_tree = id3(Xtrn, ytrn, max_depth=depth)
-#                pretty_print(decision_tree)
-#                
-#                y_pred_trn = [predict_example(x, decision_tree) for x in Xtrn]
-#                trn_Err[depth] = compute_error(ytrn, y_pred_trn)
-#                
-#                y_pred_tst = [predict_example(x, decision_tree) for x in Xtst]
-#                tst_Err[depth] = compute_error(ytst, y_pred_tst)
-#                
-#                #conconfusion_matrix(ytst,y_pred_tst)
-#            plt.figure()
-#            plt.plot(tst_Err.keys(), tst_Err.values(), marker='v', linewidth=3, markersize=12)
-#            plt.plot(trn_Err.keys(), trn_Err.values(), marker='o', linewidth=3, markersize=12)
-#            plt.xlabel('values of depth',fontsize=16)
-#            plt.ylabel('training error/test error',fontsize=16)
-#            plt.xticks(list(trn_Err.keys()), fontsize=12)
-#            plt.legend(['Test Error','Training Error'],fontsize=16)
+#        for depth in range(3,6,2):
+#            print("depth = ",depth)
+#            print("n_estimators(number of trees) = ", noftrees)
+#            clf = RandomForestClassifier(n_estimators = noftrees,criterion = 'entropy',max_depth = depth)
+#            clf = clf.fit(Xtrn,ytrn)
+#            y_pred = clf.predict(Xtst)
+#            print("Accuracy for depth and number of trees>>{}:".format(depth), metrics.accuracy_score(ytst, y_pred)*100)
+#            matrix = confusion_matrix(ytst, y_pred)
+#            print("Confusion Matrix of scikit-learn's for depth>>{}".format(depth))
+#            print(matrix)
+            
+                
+                
     
+            
+            
+        
+        
+    
+    
+   
+
     
 
